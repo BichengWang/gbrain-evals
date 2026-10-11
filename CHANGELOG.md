@@ -2,6 +2,91 @@
 
 This records what each gbrain-evals release changed and what its measurements meant at the time. Versions follow `VERSION` and `package.json`. Historical scores keep their original dates; later corrections do not turn them into measurements of today's code.
 
+## [0.10.71] - 2026-10-10
+
+### Budgeted delivery H1 results: `depth_first` fails on held-out questions; `cap_only` stays the explicit-budget default
+
+Release decision 2 of sealed confirmation v2 (`sealed-v2-decision-2-2026-10-10:depth-first-vs-cap-only`), run by the
+custodian on main `9b200886` (v0.10.70) at gbrain `8a3eedeac`
+([report](docs/benchmarks/2026-10-10-gbrain-budgeted-delivery-h1.md), aggregates in
+`docs/benchmarks/2026-10-10-gbrain-budgeted-delivery-h1/results/`). Spend $46.89 of the $145 cap.
+
+- **Verdict `fail`.** With an explicit 5,500-token budget and Sonnet 5.5, `depth_first` answered 122 of 200 and
+  `cap_only` 145: −11.5 points (95% persona-clustered interval −18.0 to −4.5), 14 wins and 37 losses, exact McNemar
+  p = 0.0018. Guard 7 found a clear loss in multi-session (40 → 15 of 80; 5 wins, 30 losses, one-sided p = 1.1e-5).
+  Temporal rose 26 → 32, knowledge update fell 39 → 35 (p = 0.11), abstention was 40 of 40 in both. Opus 5.5
+  (138 → 122) and gpt-6.1-sol (144 → 121) agree. References: `off` 142, `off` on the first five hits 150 (+2.5 over
+  `cap_only`, not distinguishable).
+- **Why.** `depth_first` fit about 3 whole conversations and delivered every gold chat for 76 of 160 answerable
+  questions (16 of 80 multi-session); `cap_only` reached pieces of about 10 and covered 159. Sealed v2's
+  multi-session and knowledge-update questions need three or four chats months apart. The run landed beyond the
+  preregistered "multi-session rewards breadth" power scenario (P(pass) 5.5%).
+- **Every evidence guard held** before any label read: guard 1 (no-budget bytes identical) on 200 of 200, guards 3, 4
+  and 5 on 200 of 200, and all 1,600 reader contexts re-rendered to the bytes the readers got.
+- **Custody.** One freeze resume after an embedding-cache lock at startup (lease $0.64; the freeze cost $0.86 over 2
+  leases), no label read before it. The access log went from 6 to 35 lines, all 29 new lines under this decision,
+  with 8 label reads, all after the final gate.
+- **What it means.** `cap_only` stays gbrain's explicit-budget default; `depth_first` stays opt-in, is not tested on
+  sealed v2 again and is not tuned on it. Sealed v2 has one opening left. The protocol's Openings record, the H1
+  preregistration and the docs index row are updated.
+
+## [0.10.70] - 2026-10-10
+
+### Budgeted delivery H1: preregistered held-out test of `depth_first` against the shipped `cap_only`
+
+A preregistration, not a result ([doc](docs/benchmarks/2026-10-10-gbrain-budgeted-delivery-h1-preregistration.md),
+[decision directory](docs/benchmarks/2026-10-10-gbrain-budgeted-delivery-h1/)). Decision
+`sealed-v2-decision-2-2026-10-10:depth-first-vs-cap-only`, the second of sealed confirmation v2's three openings, at
+gbrain `8a3eedeac` (v0.60.126.0, the pin): `depth_first` against `cap_only` at a 5,500-token gbrain budget for an
+8,000-token reader budget, one frozen 25-hit list per question, E2's pseudo-session renderer, read by Sonnet 5.5 and
+judged by gpt-4o-2024-08-06 over all 200 questions. Pass needs a persona-clustered 95% interval above zero, exact
+McNemar p < 0.05 and guards 1, 3, 4, 6, 7 and 8. No paid call and no sealed file were used.
+
+- **Why the pin and not E2's `ca2c447bd`.** Only `src/core/chunkers/token-estimate.ts` changed among the files that
+  feed retrieval, packing or token counting; a counting change is disclosed and measured at the pin. The keyless dry
+  run froze the same lists and delivered byte-identical evidence at both commits on the invented fixture.
+- **Guard 7, changed before custody (Garry, 2026-10-10).** A kind fails only on a clear loss: an exact one-sided
+  McNemar test on that kind's discordant pairs, p < 0.05. It replaced the plan's point rule (no kind down by more
+  than max(1 question, 2% of the kind)) after a pre-custody sensitivity analysis of five kind guards
+  (`scripts/guard7-sensitivity.ts`, `guard7-sensitivity.json`): P(pass) is bounded by superiority under all of them,
+  and the point rule mainly turned noise into `fail`.
+- **Power.** Simulated from E2's paired Sonnet rows with the committed rule: P(pass) 69% if E2's per-kind effects carry
+  over, 39% if multi-session gains nothing, 26% if multi-session truly loses 5 points, 5.5% if it behaves like E2's
+  `breadth_capped` pairs, and 1.3% with no effect. The limit is superiority, and no kind guard reliably catches a true
+  5-point multi-session loss at 80 questions.
+- **Budget.** Estimate $47, cap $145 (about 3x), five local lease cells in one campaign ledger.
+- **Custody chain** (`eval/runner/budgeted-delivery/h1-run.sh`, `h1.ts`): custody check of the files and the access
+  log, a label-free corpus, the gates on frozen evidence before any label read, answers files, scoring through the
+  sealed runner, the rule, an export scanned for every corpus id, and the access log returned. The keyless dry run
+  (`h1-dry-run.sh`, `h1-fixture.ts`; receipts committed) passed every gate, read the labels once per arm after the
+  final gate, refused all nine refusal probes without a label read, and left no fixture text outside the custody root.
+- **Harness.** `deliver_set=h1` in the gbrain-query system; reader-only arms (`judge: "none"`) in memory-qa; the
+  custody corpus hash on memory-qa's custody open line; `sealed-confirmation.ts score --custody-root` and
+  `GBRAIN_EVALS_CUSTODY_LOG` for its access log; `OPENAI_BASE_URL` in the sealed runner's judge client;
+  `SHOOTOUT_KEYLESS_UPSTREAM` for local lease cells; the stub proxy's `/responses` route and `--vary`. Tests in
+  `test/eval/budgeted-delivery-h1.test.ts` and the E2 real-PGLite test.
+
+## [0.10.69] - 2026-10-10
+
+### T0b generator v2, scorer t0b-score-v2 and the custodian-sealed confirmation preregistration (no paid cells)
+
+Prepares the program primary's held-out test: the shipped stack (Candidate 1 plus garrytan/gbrain#6271's short-code
+alias rule) against frozen gbrain v0.60.106.0, on 32 personas minted on the maintainer's Mac.
+
+- **Generator v2** (`V2_KNOBS`): every company's short code is unique within a brain and never a word-like code
+  (`CODE_STOPWORDS`); namesake promises match only their distinctive phrase (`NAMESAKE_STRICT`); mail ids are keyed by
+  company. Version 1 worlds are byte-identical (baseline digest pinned in a test).
+- **Custodian mode**: `--mint-sealed --personas N --custodian-out <dir>` writes seeds to a 0600 file outside the
+  repository and prints only their commitment; `--custodian-seeds` renders a seedless world (`sealed-01`...) and its
+  digest; the T0b runner reads it with `--world --expect-digest` and refuses a world inside the repository.
+- **Scorer t0b-score-v2**: a line carrying a namesake value is the namesake's when it names the namesake (last name,
+  company or code) and not the contact, or carries a disambiguation cue; the cue list adds the phrases the namesake
+  diagnostic found missing. The 25 audited lines score as the diagnostic read them (v1 flags 11), and 576 mutation
+  lines restating a namesake value as the contact's all fail.
+- **Preregistration amendment 5** ([doc](docs/benchmarks/2026-10-08-program-primary-hard-preregistration.md)): arms,
+  size (32 personas: P(`10x`) 0.82 at a true factor of 20), claims, validity mutants, gates, custody chain and a $265
+  ledger cap. It runs once #6271 merges.
+
 ## [0.10.68] - 2026-10-10
 
 ### T0b namesake diagnostic: all 11 namesake flags left after the alias fix are scorer false positives
