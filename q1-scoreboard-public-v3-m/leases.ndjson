@@ -9,3 +9,4 @@
 {"event":"settled","lease_id":"s5.gbrain-defaults.shipped-defaults.c0-a1-3d90837f","at":"2026-10-11T00:40:05.710Z","actual_usd":7.659780719999854,"requests":20137,"max_output_tokens":null,"cell_exit_code":4}
 {"event":"settled","lease_id":"s5.gbrain-defaults.shipped-defaults.c3-a1-65a92688","at":"2026-10-11T00:44:17.603Z","actual_usd":7.269150039999879,"requests":19525,"max_output_tokens":null,"cell_exit_code":4}
 {"event":"settled","lease_id":"s5.gbrain-defaults.shipped-defaults.c2-a1-21d87141","at":"2026-10-11T00:50:28.553Z","actual_usd":7.82157005999977,"requests":20687,"max_output_tokens":null,"cell_exit_code":4}
+{"event":"settled","lease_id":"s5.gbrain-defaults.shipped-defaults.c1-a1-78cbe15f","at":"2026-10-11T01:06:45.243Z","actual_usd":6.318097880000001,"requests":17316,"max_output_tokens":null,"cell_exit_code":4}

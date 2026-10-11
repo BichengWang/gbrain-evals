@@ -1,0 +1,1166 @@
+{
+  "schema": "gbrain-evals/q1-cell-receipt/v1",
+  "cell_id": "s5.gbrain-defaults.shipped-defaults.component-b8000",
+  "run_cell": "s5.gbrain-defaults.shipped-defaults",
+  "config_sha256": "618e950462c5b02c958437e5be4ee8f67acab9ba3e2365d937c457a030bcc9dc",
+  "run_status": "partial",
+  "invalid_reasons": [],
+  "stopped": null,
+  "set": "S5",
+  "benchmark": "lme-m",
+  "split": "dev",
+  "block": "T2-S4-S5",
+  "system": {
+    "kind": "gbrain-defaults",
+    "configuration": "shipped-defaults",
+    "runner": "shim",
+    "capability_system": "gbrain-defaults",
+    "versions": {
+      "package": "gbrain (github:garrytan/gbrain#f05943e653fd9d938b343b1774a35325ba792271, 0.60.138.0), installed with bun install -g",
+      "runtime": "Bun 1.4.2 (oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61)",
+      "image": "shim built from eval/systems/gbrain-defaults/Dockerfile on python:3.12-slim@sha256:02108f5d322dd89f1c9e552442c25acb0543dfdbc455693a5599624f20d9155d",
+      "lock_sha256": null,
+      "vendor_benchmark_code": null
+    },
+    "capabilities": {
+      "protocol": 1,
+      "system": "gbrain-defaults",
+      "versions": {
+        "package": "gbrain (github:garrytan/gbrain#f05943e653fd9d938b343b1774a35325ba792271, 0.60.138.0), installed with bun install -g",
+        "runtime": "Bun 1.4.2 (oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61)",
+        "image": "shim built from eval/systems/gbrain-defaults/Dockerfile on python:3.12-slim@sha256:02108f5d322dd89f1c9e552442c25acb0543dfdbc455693a5599624f20d9155d",
+        "lock_sha256": null,
+        "vendor_benchmark_code": null
+      },
+      "configs": {
+        "recipe": {
+          "model_roles": {
+            "embedder": "voyage:voyage-4",
+            "dims": 1024,
+            "reranker": "voyage:rerank-2.5",
+            "expansion": "anthropic:claude-haiku-4-5-20251001",
+            "synthesis": "anthropic:claude-opus-4-7",
+            "extraction": "anthropic:claude-haiku-5-5"
+          },
+          "notes": "gbrain's shipped defaults as init resolves them with Voyage, OpenAI and Anthropic keys present: PGLite engine, voyage:voyage-4 at 1024 dimensions, search mode tokenmax (init's auto pick: reranker voyage:rerank-2.5 on, LLM expansion on, search limit 50, contextual retrieval per-chunk synopsis, semantic cache as gbrain's availability gate sets it), internal models from gbrain's tier defaults. These are the expected values; /capabilities adds `resolved`, read from the stack's reference install (gbrain search modes --json, gbrain models --json, config.json) with its sha256, and every later install and every serve start must resolve to the same hash."
+        }
+      },
+      "install": {
+        "recipe": [
+          "bun install -g github:garrytan/gbrain#<GBRAIN_SHA> (image build)",
+          "config.json provider_base_urls.{voyage,openai,anthropic} -> the egress relay to the metering proxy, written before init",
+          "gbrain init --pglite --json (dummy VOYAGE_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY in the environment)",
+          "gbrain apply-migrations --yes --non-interactive --no-autopilot-install (the setup step gbrain's postinstall runs; bun install -g blocks postinstall scripts)",
+          "the scripted 'defaults' reply: every first_run_decisions default option's argv, as init printed it",
+          "gbrain serve --surface starter over MCP stdio (the registration gbrain's harness_wiring option names)"
+        ],
+        "first_run_defaults": {
+          "search_mode": "tokenmax (gbrain config set search.mode tokenmax)",
+          "writeback": "salient (gbrain config set memory.auto_writeback salient)",
+          "harness_wiring": "skip in init's terms (no argv); the shim is the agent host and registers gbrain serve --surface starter"
+        }
+      },
+      "time": "in-text",
+      "time_notes": "Each session is a type: conversation page whose frontmatter carries the session date and whose turns carry the session time in gbrain's conversation-parser anchor shape (**Speaker** (YYYY-MM-DD h:mm AM): text). query takes no as-of date, so query_time is not sent; synthesize takes none either (relative-time questions resolve against the run date, the shipped behavior). think receives the question date as reference_date.",
+      "provenance": {
+        "status": "exact",
+        "mechanism": "One page per session at conversations/<date>/<source id>; every returned row names its page slug, which maps to exactly one ingested source id. Rows from pages gbrain created itself (none under the defaults on conversation pages) report unavailable."
+      },
+      "delete": "unsupported",
+      "delete_notes": "The starter surface has no page delete; delete_page is a full-surface op and the scoreboard calls only starter ops.",
+      "readiness": "put_page returns when the write commits (pending receipts are polled with get_write_request until terminal; a failed or conflicting receipt is a product error, and a replay with the same request id returns gbrain's stored receipt); embeddings are a later persistence effect. /finish stops serve, runs gbrain doctor --json with the brain to itself (a doctor under a live serve reports details.reason live_serve and fails the barrier), requires every expected page and 0 chunks missing embeddings, restarts serve while coverage is short (its persistence consumer drains the effects) until timeout_s, then reads gbrain's job queue (gbrain jobs list --json) and the outbox effects still pending (list_write_requests) and keeps serve up for drain rounds while any can still run, up to the same timeout_s, recording what is left as background_liabilities, and confirms every page through list_pages.",
+      "namespace": "one brain per namespace: a clean scripted install per namespace at one fixed GBRAIN_HOME, verified against the stack's reference install (resolved configuration, config hash without its install timestamp, starter tools/list). Brains move between /data/ns/<ns> and GBRAIN_HOME by rename and are never copied: gbrain binds a brain's content checkout to its inode and birth time, so a copied brain refuses writes with recovery_required.",
+      "parallel_namespaces": false,
+      "retrieval_policies": {
+        "vendor-default": {
+          "settings": {},
+          "notes": "Bare query: no limit (tokenmax resolves 50), no token_budget, expansion on by default, auto delivery (whole conversation pages up to 24,000 tokens). token_budget is refused: without return_unit it switches query to chunk delivery (src/core/ops/search.ts:131, src/core/search/evidence-delivery.ts:200)."
+        },
+        "fixed-evidence": {
+          "settings": {
+            "limit": 50,
+            "autocut": false
+          },
+          "notes": "query with limit 50 and autocut off, still no token_budget, so delivery stays auto; the harness packs 2k/8k/16k from the delivered pages."
+        },
+        "allowed_settings_overrides": [
+          "limit",
+          "autocut",
+          "expand",
+          "on_degraded (error | report)"
+        ],
+        "on_degraded": "error",
+        "degraded_reads": "Every query response's _meta.retrieval (vector_enabled, expansion_applied, cache, degraded, projection_readiness, vector_pool_underfilled, crag, delivery fallbacks and dropped_reasons) and its gbrain notices are returned under raw. A harness failure is: any degraded stage (the reranker reports failure as reranker_skipped, rerank_passthrough or rerank_failed; expansion as expansion_failed), rows without the confidence block's top_rerank_score in a reranked mode (meta.rerank is System One's field and stays absent under the defaults), expansion_applied false in an expansion mode (gbrain's expansion falls back to the bare query silently, for example on a proxy 402), a disabled vector arm, a projection that is not ready, a delivery fallback that is not shipped behavior (fetch_timeout, fetch_failed, row_limit, unsealed_page, anchor_not_located, page_missing or any unknown reason), or a delivery unit other than auto. With on_degraded error (the default) /retrieve answers HTTP 503 with error kind invalid_request, which memory-qa records as harness_invalid and retries; with on_degraded report it returns the items with raw.classification.outcome harness_invalid. A semantic cache hit, an underfilled vector pool, dropped delivery blocks and the preregistered shipped-behavior delivery fallbacks (redaction_unmapped: gbrain's secret redactor changed a block's text; no_text_chunks: a page with no text chunks delivers its hit as a chunk; the set is GBRAIN_SHIPPED_FALLBACKS and /capabilities shows it under shipped_behavior) are recorded under raw.classification.recorded as delivery_fallback:<reason>, counted in GET /health shipped_fallbacks, never classified as degraded and never answered with the 503.",
+        "item_mapping": "One item per query row in gbrain's rank order. Rows are gbrain's lean remote rows (the shape an agent reads); chunk_text is the delivered text (a whole conversation page under auto delivery). A type: conversation row -> type episode (chunk when gbrain marks it truncated), anything else chunk; source_ids is the page's source id, provenance exact."
+      },
+      "own_answer": {
+        "route": "POST /answer {ns, question, query_time, mode: synthesize | think, model}",
+        "synthesize": "the starter synthesize verb with gbrain's configured default model; synthesis_status ok -> outcome scored; extractive_fallback -> scored with degraded extractive_fallback (its own column); an unavailable error (dummy-key or compose failure path) -> harness_invalid.",
+        "think": "full surface only (GBRAIN_FULL_SURFACE=1 serves --surface full; every other call still uses starter ops, checked against the starter tools/list captured at template build): think with model = the reader and reference_date = the question date."
+      },
+      "streaming": "disabled",
+      "provider_routes": [
+        "POST /voyage/v1/embeddings (voyage-4, output_dimension 1024)",
+        "POST /voyage/v1/rerank (rerank-2.5)",
+        "POST /anthropic/v1/messages (expansion, synthesis, background extraction)",
+        "POST /openai/v1/* and GET /openai/v1/models (latest-model discovery on connect)"
+      ],
+      "telemetry_off": [],
+      "telemetry_notes": "gbrain sends no product telemetry. Its update check (GitHub) cannot leave the sandbox network and fails closed; the failure is recorded, not hidden.",
+      "agent_surface": {
+        "kind": "vendor-mcp",
+        "transport": "stdio",
+        "version": "gbrain serve --surface starter (gbrain 0.60.95.0)"
+      },
+      "deviations_from_vendor_code": [
+        "Sessions arrive through the shim as one put_page per session (the capture-hook path), not through gbrain's transcript import adapters; the page shape follows gbrain's transcript renderer (type: conversation, date, imessage-slack anchor lines) without its 4,000-character per-message cap or part splitting, so no turn text is cut.",
+        "The update check and autopilot install are not reachable from the sandbox; apply-migrations runs with --no-autopilot-install."
+      ],
+      "extensions": {
+        "POST /answer": "gbrain's own answer (see own_answer)",
+        "GET /stats": "serve resident memory (VmRSS, VmHWM from /proc) and the active brain's size on disk, for the stress pilot",
+        "POST /restart {ns}": "stop and start serve on the namespace's brain; restart_ms",
+        "GET /health": "adds called_ops (every MCP tool called since start), checked against resolved.starter_tools, and shipped_fallbacks (shipped-behavior delivery fallbacks counted per reason)",
+        "POST /finish": "adds doctor (the last doctor gate), doctor_rounds (their count), rounds (every doctor gate of the barrier), absent_pages, expected_pages and background_liabilities (pending_jobs by kind, oldest_pending_age_s, pending_effects by kind, drained, drain_rounds, the doctor's facts and queue backlog)"
+      },
+      "answer": {
+        "modes": [
+          "synthesize"
+        ],
+        "models": {
+          "synthesize": "anthropic:claude-opus-4-7"
+        }
+      },
+      "shipped_behavior": {
+        "delivery_fallbacks": [
+          "no_text_chunks",
+          "redaction_unmapped"
+        ],
+        "preregistered": [
+          "no_text_chunks",
+          "redaction_unmapped"
+        ],
+        "configured_by": "GBRAIN_SHIPPED_FALLBACKS",
+        "matches_preregistration": true
+      },
+      "resolved": {
+        "gbrain_version": "gbrain 0.60.138.0",
+        "resolved_sha256": "3c26b4ae2fc319d385e2dbc0180ec19fd01240a4b6ae5202038a42e2b792407b",
+        "config_sha256": "6349524a02b73bdd16204585d37fb8a03c8495794f9a535fe94756437b7a0554",
+        "starter_tools_sha256": "08403fb2315d2e2ffa12e451950aaee6f704daa9c7a4d466d18c4a454483c58d",
+        "starter_tools": [
+          "add_timeline_entry",
+          "cancel_job",
+          "cancel_write_request",
+          "capture",
+          "context_pack",
+          "delta",
+          "edit_page",
+          "entity",
+          "find_anomalies",
+          "forget",
+          "get_agent_job",
+          "get_backlinks",
+          "get_ingest_log",
+          "get_page",
+          "get_recent_salience",
+          "get_skill",
+          "get_skill_asset",
+          "get_write_request",
+          "list_brain_skillpack",
+          "list_link_sources",
+          "list_pages",
+          "list_skills",
+          "list_write_requests",
+          "mute_notice",
+          "put_page",
+          "query",
+          "recall",
+          "remember",
+          "request_tools",
+          "resolve_slugs",
+          "search",
+          "submit_agent",
+          "synthesize",
+          "traverse_graph",
+          "whoami"
+        ],
+        "first_run_decisions": [
+          {
+            "id": "search_mode",
+            "default": "tokenmax",
+            "applied_argv": [
+              "gbrain",
+              "config",
+              "set",
+              "search.mode",
+              "tokenmax"
+            ]
+          },
+          {
+            "id": "writeback",
+            "default": "salient",
+            "applied_argv": [
+              "gbrain",
+              "config",
+              "set",
+              "memory.auto_writeback",
+              "salient"
+            ]
+          },
+          {
+            "id": "harness_wiring",
+            "default": "skip",
+            "applied_argv": null
+          }
+        ],
+        "engine": "pglite",
+        "embedding_model": "voyage:voyage-4",
+        "embedding_dimensions": 1024,
+        "search_mode": "tokenmax",
+        "search": {
+          "autocut": false,
+          "autocut_jump": 0.2,
+          "autocut_min_keep": 1,
+          "autocut_min_top": 0.35,
+          "cache_enabled": false,
+          "cache_similarity_threshold": 0.92,
+          "cache_ttl_seconds": 3600,
+          "contextual_retrieval": "per_chunk_synopsis",
+          "contextual_retrieval_disabled": false,
+          "cross_modal_both_image_weight": 0.4,
+          "cross_modal_both_text_weight": 0.6,
+          "cross_modal_llm_intent": false,
+          "evidence_cosine_floor": 0.8,
+          "expansion": true,
+          "expansion_variant_budget": null,
+          "floor_ratio": null,
+          "graph_signals": true,
+          "image_query_image_refinement_weight": 0.6,
+          "image_query_text_refinement_weight": 0.4,
+          "intentWeighting": true,
+          "keywordOrFallback": true,
+          "keyword_arm_confidence_floor": null,
+          "metadata_boost_gate": "lexical",
+          "relationalRetrieval": true,
+          "relational_chain_slots": 10,
+          "relational_orient_onehop": false,
+          "relational_planner": true,
+          "relational_rerank_pin": 3,
+          "relational_retrieval_depth": 2,
+          "reranker_enabled": true,
+          "reranker_model": "voyage:rerank-2.5",
+          "reranker_timeout_ms": 5000,
+          "reranker_top_n_in": 50,
+          "reranker_top_n_out": null,
+          "searchLimit": 50,
+          "title_boost": 1.25,
+          "tokenBudget": null,
+          "unified_multimodal": false,
+          "unified_multimodal_only": false
+        },
+        "model_tiers": {
+          "deep": "anthropic:claude-opus-4-7",
+          "reasoning": "anthropic:claude-sonnet-4-6",
+          "subagent": "anthropic:claude-sonnet-4-6",
+          "utility": "anthropic:claude-haiku-4-5-20251001"
+        },
+        "model_tasks": {
+          "models.dream.synthesize": "anthropic:claude-sonnet-4-6",
+          "models.dream.synthesize_verdict": "anthropic:claude-haiku-4-5-20251001",
+          "models.dream.patterns": "anthropic:claude-sonnet-4-6",
+          "models.dream.extract_atoms": "anthropic:claude-haiku-4-5-20251001",
+          "models.drift": "anthropic:claude-sonnet-4-6",
+          "models.auto_think": "anthropic:claude-opus-4-7",
+          "models.think": "anthropic:claude-opus-4-7",
+          "models.fence_repair": "openai:gpt-6.1-sol",
+          "models.content_repair": "anthropic:claude-opus-5-5",
+          "models.subagent": "anthropic:claude-sonnet-4-6",
+          "facts.extraction_model": "anthropic:claude-haiku-5-5",
+          "models.eval.longmemeval": "anthropic:claude-sonnet-4-6",
+          "models.eval.contradictions_judge": "anthropic:claude-haiku-4-5-20251001",
+          "models.expansion": "anthropic:claude-haiku-4-5-20251001",
+          "models.contextual_synopsis": "anthropic:claude-haiku-4-5-20251001",
+          "models.chat": "anthropic:claude-sonnet-4-6"
+        }
+      }
+    }
+  },
+  "arm": {
+    "id": "component-b8000",
+    "arm": "component",
+    "mode": "packed",
+    "policy": "fixed-evidence",
+    "budget": 8000,
+    "variant": null,
+    "label": "component, 8,000 tokens"
+  },
+  "readers": [
+    "anthropic:claude-opus-5-5",
+    "openai:gpt-6.1-sol",
+    "anthropic:claude-sonnet-5-5"
+  ],
+  "reader_replicates": {},
+  "effort": "medium",
+  "instrument": {
+    "id": "lme-m",
+    "sha256": "535a46da75ea691ba46777c37e920e98d4bf3d33e427a0851907cefea7c89da8",
+    "judge": "openai:gpt-4o-2024-08-06"
+  },
+  "frontier": {
+    "judges": [
+      "anthropic:claude-opus-5-5",
+      "openai:gpt-6.1-sol"
+    ],
+    "readers": null,
+    "sample": 17,
+    "instrument_ids": [
+      "lme-m@anthropic:claude-opus-5-5",
+      "lme-m@openai:gpt-6.1-sol"
+    ]
+  },
+  "selection": {
+    "questions": 100,
+    "conversations": 25,
+    "scheduled_sha256": "4a1ab4e694ab7c34d3e9f3ffd9f1022a1cd31ad3b725f73aad260edfca80cd60"
+  },
+  "counts": {
+    "rows": 25,
+    "answers": 75,
+    "answers_promised": 300,
+    "judgments": 84,
+    "unjudged": 0,
+    "outcomes": {
+      "scored": 75
+    }
+  },
+  "per_reader_mean": {
+    "anthropic:claude-opus-5-5": 0.68,
+    "openai:gpt-6.1-sol": 0.6,
+    "anthropic:claude-sonnet-5-5": 0.56
+  },
+  "realizations": [
+    {
+      "conversation": "06f04340",
+      "realization_id": "d800a4d9b7aceb72c68a574f82c87ffaf742e7d79ad5be98a311f84da8543245",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "09ba9854_abs",
+      "realization_id": "9626ef0a18f472e77a5ad9075c0c0845ca6ca19b5cdf5f46368ae9a3c976454e",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "16c90bf4",
+      "realization_id": "b1093d4d35bc780cc388362c90f1c4a54b8871cc172db996d3da8394c05773c9",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "2133c1b5",
+      "realization_id": "e7204f2aedf86714cd1315a6d79f3719b44d45b9a0563facd3b9589bad557755",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "28dc39ac",
+      "realization_id": "a9385600f511063cabafa6b8f721e16ae565aa041149c44402d89cd0120f929e",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "36b9f61e",
+      "realization_id": "ddd6e5d7e44b729f711c66e0186a8564e4c743fac70b0d405df0f207fc7671fa",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "4d6b87c8",
+      "realization_id": "4cee6a1920ae784c3563c4d7ec95b14e58969e410786178772484757de56d3f6",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "545bd2b5",
+      "realization_id": "23b099113a8019e33df20e3e4fc3b0ecd6dae72435f534bd9689c2c6ef34cdf1",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "61f8c8f8",
+      "realization_id": "f1a7129f112f93a40390b5dfb44d7293bb501b505cd09a6df5a5cd1abdcad411",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "6cb6f249",
+      "realization_id": "763d9a3d3efd8d0cc571ea33c0f5ce3ceb33dfd42c89e4c3c0dadccbc18aa3ea",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "71a3fd6b",
+      "realization_id": "876ae33072aba87bcc616356dd7605626866b20f333535f0351617b697d6bdf1",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "75832dbd",
+      "realization_id": "af049400a115182960a704b4df27e5c893b6fd44db610152155b89c343ab654c",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "8cf51dda",
+      "realization_id": "ac73bc5a7692c6eb211a1a8163d89dbaf34a471a1e92f86fa389598ac814797a",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "a2f3aa27",
+      "realization_id": "a3566d7c91d004b05e3461472da1a382d6b13edd1035f2c263f64180f6cb010a",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "b5ef892d",
+      "realization_id": "d54a0bbea9efa13f66905fa0cd094526311cfc1f3dfa7adec1eb17b4c24deb97",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "bf659f65",
+      "realization_id": "8c52915d6ee40cc5258c88dbaa0c7accfd2764159c81434ae9e059d93df2ae2f",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "c4f10528",
+      "realization_id": "f143214cfd54a3d243da6f1bf2f42c3dfa21dfa18301388ceb673d918ab96222",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "db467c8c",
+      "realization_id": "74d74fcec80a14c7bf6b608915d307309d40ed69e50861d76ba94a2e760329ef",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "efc3f7c2",
+      "realization_id": "057b118a380faa7c7d598c17f34bede2068cd6694bc8ab8594de6af7a727968e",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "f685340e_abs",
+      "realization_id": "9e1a840e2bc16993b76f1e5de1ace1b45a285157538b3b1e4eba056f123970ab",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "gpt4_2ba83207",
+      "realization_id": "936f5052add81b486ce186fdcb405a4f4583364c4148744dbabeccb5bd12a431",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "gpt4_468eb064",
+      "realization_id": "fec099f6067eeb6687a485809f96291ac9a6bd35e1ad2ac88a0af23be5f29ffc",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "gpt4_731e37d7",
+      "realization_id": "2874f12ac2d2d463d88966954c2034889ba401fc7c213b35c586d2c715776486",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "gpt4_93159ced",
+      "realization_id": "344be98916e59d3b135c75f91c2f7946e2443dbd0e6c53165ef0d359f9ead1b3",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    },
+    {
+      "conversation": "gpt4_ec93e27f",
+      "realization_id": "fba4aa0e3c428c6cd230289c9111354928667efe99676e4ad252d7096a5b040f",
+      "attempts": 1,
+      "restored_from": null,
+      "degraded": false,
+      "background_liabilities": {
+        "pending_jobs": {},
+        "oldest_pending_age_s": null,
+        "pending_effects": {},
+        "drained": true,
+        "drain_rounds": 1,
+        "doctor": {
+          "facts_backlog": {
+            "waiting": 0,
+            "delayed": 0,
+            "active": 0
+          },
+          "chronicle_pending_pages": 0,
+          "queue_waiting": 0
+        }
+      }
+    }
+  ],
+  "ingest": {
+    "conversations": 25,
+    "messages": 122518,
+    "ingested_tokens": 25882518,
+    "wall_ms": {
+      "total": 12092292,
+      "p50": 481748,
+      "p95": 646502.8
+    },
+    "failed_sessions": 0,
+    "degraded_conversations": 0,
+    "readiness_samples_ms": [
+      21207.1,
+      2657.4,
+      2650.9,
+      4335.1,
+      2979.5,
+      64928,
+      59860.1,
+      59019.1,
+      16071.2,
+      20000.9,
+      10721.3,
+      15250.9,
+      15745.7,
+      9695.7,
+      17951,
+      22879,
+      30920.1,
+      33118.1,
+      16547.3,
+      60679.3,
+      62986.9,
+      2324,
+      23695.2,
+      27813.2,
+      32722.4,
+      27676.1,
+      32667.2,
+      2821.2,
+      8828,
+      2655.8,
+      6660.9,
+      15289.7,
+      20234.1,
+      19438.5,
+      11292.5,
+      35430.4,
+      50327.1,
+      28032.1,
+      12154.6,
+      14307.2,
+      61695.5,
+      62208.8,
+      1903.8,
+      106598.5,
+      2435.7,
+      2357.3,
+      2728.1,
+      242441.2,
+      227807.9,
+      178039.4,
+      55113.8,
+      23243.4,
+      8497.8,
+      3227.2,
+      8506.1,
+      8173.4,
+      10373.3,
+      9879.9,
+      3088.9,
+      53911.6,
+      54279.6,
+      47813.5,
+      45693.9,
+      13769.4,
+      2915.9,
+      23294.6,
+      2903.8,
+      28665.9,
+      90334.8,
+      94260.3,
+      75425,
+      41031.2,
+      10401.5,
+      9871.9,
+      24657,
+      19897.3,
+      10093.8,
+      18883.8,
+      20757.5,
+      26510.3,
+      25676.3,
+      71983.4,
+      141579.4,
+      112230,
+      2632.4,
+      19940.6,
+      2686.2,
+      30174,
+      53117.3,
+      52914.4,
+      11063.8,
+      8447.3,
+      2807.6,
+      7819.5,
+      23078.7,
+      22120,
+      15997.8,
+      16266.9,
+      17821.3,
+      10021.6,
+      9594.1,
+      3307.9,
+      7603.9,
+      77454.4,
+      74272.9,
+      3215.4,
+      44226.3,
+      42596.3,
+      13925,
+      13125.3,
+      5747.1,
+      3004,
+      8113.2,
+      25908.7,
+      33073.8,
+      20400.3,
+      27992,
+      33635.5,
+      9611.1,
+      31424.8,
+      32829.5,
+      17856.5,
+      10309.4,
+      19168.5,
+      13045.5,
+      40382.1,
+      11597.4,
+      24793,
+      36800.5,
+      31950.2,
+      26098.5,
+      34305,
+      34696.9,
+      28189.1,
+      9817.4,
+      8965.1,
+      8140.7,
+      20643.4,
+      39247.6,
+      40844,
+      20331.2,
+      29744.3,
+      29783.4,
+      7118.4,
+      32260.1,
+      31982.7,
+      43601,
+      7143.9,
+      2601,
+      2707.8,
+      2544.4,
+      2814.6,
+      2857.2,
+      2617.1,
+      2579.9,
+      2861.2,
+      2135.1,
+      284764.8,
+      295401.8,
+      255613.2,
+      218877.8,
+      21561.9,
+      20199.5,
+      3520.6,
+      8136.8,
+      23680.5,
+      70218.1,
+      59174.4,
+      9303.2,
+      24629.2,
+      3187.4,
+      3696.8,
+      2886.8,
+      2674.5,
+      154045.5,
+      173037.6,
+      144512.2,
+      88808.7,
+      33077.3,
+      46270.4,
+      21670.3,
+      24050.4,
+      25721.9,
+      23055.3,
+      8593.1,
+      30730.5,
+      35807.6,
+      48455.3,
+      47574.8
+    ],
+    "write_start_to_queryable_ms": {
+      "p50": 20757.5,
+      "p95": 143339.1,
+      "probes": 189,
+      "found": 189,
+      "missed": 0,
+      "not_measurable": 0
+    }
+  },
+  "timings": {
+    "retrieval_ms": {
+      "p50": 5133.5,
+      "p95": 6551.2
+    },
+    "answer_ms": {
+      "p50": 4238,
+      "p95": 13115.7
+    }
+  },
+  "usage": {
+    "input": 556690,
+    "output": 32224,
+    "cache_read": 0,
+    "cache_write": 0
+  },
+  "spend": {
+    "source": "metering proxy (whole cell, every arm)",
+    "usd": {
+      "ingest": 4.044536,
+      "retrieval": 0.051702,
+      "reader": 2.088418,
+      "judge": 0.133431,
+      "background_tail": 0
+    },
+    "total_usd": 6.318087,
+    "background_tail_usd_by_realization": {}
+  },
+  "files": {
+    "rows": "rows.ndjson",
+    "answers": "answers.ndjson",
+    "judgments": "judgments.ndjson",
+    "run_config": "run-config.json",
+    "readiness": "readiness.ndjson",
+    "contexts": "../../runs/s5.gbrain-defaults.shipped-defaults/contexts.ndjson"
+  }
+}
