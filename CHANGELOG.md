@@ -10,6 +10,30 @@ This records what each gbrain-evals release changed and what its measurements me
 - Invalid numeric scores follow the existing malformed-response policy: one corrective retry, then `judge_failed` for the shared judge or `JudgeFailure` for Cat 29's pairwise judge.
 - Finite out-of-range scores still clamp to `0–5`. Published scores and historical receipts are not regenerated.
 
+## [0.10.72] - 2026-10-11
+
+### Memory proof wave: sealed BEAM results for gbrain #6066
+
+The preregistered comparison of gbrain against a memory-bank server with background extraction and reflection
+([report](docs/benchmarks/2026-10-09-memory-proof-wave-sealed-results.md), preregistration
+`docs/benchmarks/2026-10-05-memory-proof-wave-preregistration.md` and its addenda). The measured build was frozen at
+gbrain `d7467d1cf`, and its retrieval was checked equivalent at `d7d7686de`. The defaults it supports shipped in
+gbrain #6066 (v0.60.164.0).
+
+- **Accuracy: `ahead`.** On sealed BEAM 100k + 500k + 1M (1,080 questions), gbrain's combined lane (pages plus facts)
+  answered 67.0% against the comparator's 64.4%: +2.64 points, one-sided 95% bounds +0.90 and +4.41, with the
+  preregistered 3.5-point margin. By size: +6.03 at 100k, +2.20 at 500k, +1.13 at 1M.
+- **Cost: an edge at low read volume only.** Cost per correct answer was 0.63 of the comparator's at 20 reads per
+  stored conversation and 1.01 at 200 reads (no edge). gbrain's ingest was cheaper ($20 against $47), and its reads
+  cost slightly more ($20 against $17), so reads dominate at high volume.
+- **Pages-only lane: inconclusive** at 62.3%.
+- **Descriptive rows.** LongMemEval-S (400 questions): combined 69.8%, pages-only 80.3%, comparator 84.5%. LoCoMo10
+  (1,218): 93.3%, 85.0% and 83.3%. The comparator exceeded the 8,800-token context gate on both (p95 9,373 and
+  8,855). On LongMemEval-S, the combined lane trails the pages-only lane by 10.5 points.
+- **Custody.** The private per-question receipts were lost with a machine. The verdict stands on the published
+  aggregates, and the addenda record the custody as final.
+- **Harness.** The repository adds the wave's harness, power and grouping tools, and workload suites.
+
 ## [0.10.71] - 2026-10-10
 
 ### Budgeted delivery H1 results: `depth_first` fails on held-out questions; `cap_only` stays the explicit-budget default
