@@ -348,9 +348,10 @@ A BEAM-10M conversation is about 6,000 to 7,000 conversation pages, past gbrain'
   (0.60.106.0), resolved hash `415dafe5ada70e8ba2ba72126a1af950a04eaab31aec0da4b7cf09f43186ccab` (fact extraction on
   `claude-sonnet-4-6`, no content-repair model).
 - **Campaigns** (`2026-10-06-scoreboard/campaign/`), each hash covering the manifest, the git tree of every file a
-  cell executes (159 files at the A9 and A14 trees) and the pinned images:
+  cell executes (159 files at the A9, A14 and A17 trees) and the pinned images:
   - `q1-scoreboard-sealed`: S1, BEAM-100K and BEAM-1M sealed, and LoCoMo; 144 launch units; cap $7,200; launched
-    from the custodian's host. Hash `a7328eed8f77e30523e32a1c4a9756711fabdcfce3118c893dedd006b3877728` (A14).
+    from the custodian's host. Hash `eefd1799842105260104532b78283f9d9b5379ddfae6d44bb8f75317bc56424c` (A17); it replaces
+    `a7328eed8f77e30523e32a1c4a9756711fabdcfce3118c893dedd006b3877728` (A14), under which nothing was counted.
   - `q1-scoreboard-public`: LongMemEval-S and -M; 12 launch units; cap $500. Hash
     `52757aab6762ddb7c846fdb8bb5943d98e7aecf1cd7f164dc1acda8e65a5b7e2` at its launch tree (`a22e3d81`, 156 files); it
     renders from that tree (A8).
@@ -367,9 +368,11 @@ A BEAM-10M conversation is about 6,000 to 7,000 conversation pages, past gbrain'
     `7aa2caa0`); it renders from that tree (A14). It replaces the public campaign and r2 to r5, which are retired with
     nothing counted. Its gbrain-defaults rows move to the found-and-fixed appendix (A15).
   - `q1-scoreboard-public-v3-m`: the four LongMemEval-M gbrain-defaults shards at gbrain `f05943e6` (A15); cap $38.
-    Hash `1d119581f9ab9c4cf863cbd9ebff0909a49aa8ddb109420b967e2a0615e20248`.
+    Hash `1d119581f9ab9c4cf863cbd9ebff0909a49aa8ddb109420b967e2a0615e20248` at its launch tree (`0518e2fd`); it renders
+    from that tree (A17).
   - `q1-scoreboard-public-v3-s`: the two LongMemEval-S gbrain-defaults shards at gbrain `f05943e6` (A15); cap $39.
-    Hash `ca729154f25b4d11429a93e810961a8239c928e51e4c11f62fa1209d22a5c612`.
+    Hash `ca729154f25b4d11429a93e810961a8239c928e51e4c11f62fa1209d22a5c612` at its launch tree (`0518e2fd`); it renders
+    from that tree (A17).
   The sealed cap ($7,200), the public spend (about $150 lost under A13 plus the v2 cap of $441) and the $60 of dev work
   stay under the $8,500 program cap.
 - **Images:** every upstream image each bundle pulls or builds on, in each campaign's `images` map by bare `sha256`
@@ -672,7 +675,74 @@ The D8 reserve's hash list (A2) is relayed: SHA-256
 `a14e55ced31008846778603eee656696f8a35c123758c814f36653d970a7a19a`, 153 files, held in owner custody on the owner's
 host. Q1's cells do not use the reserve.
 
+**A17 (2026-10-11, before any sealed cell reached a question): two sealed launch-path faults fixed; re-freeze.**
+The custodian found two faults that stop every sealed cell before its first question. Both are in the harness
+that delivers data and carries custody to the VM. No bar, cell, reader, model, lease or scoring rule changes.
+
+- **Fault 1: S1 had no corpus delivery.** Each S1 cell's setup runs `eval:decide fetch --benchmark beam-10m`, and
+  BEAM-10M has no download: its files exist only in custody. The launcher had no way to put the custodian's
+  verified copy on the VM, so all 85 S1 units stopped in setup. The fix: on the custodian's host,
+  `GBRAIN_EVALS_BEAM10M_SOURCE` names the verified dataset root, which must be outside the checkout. Before any VM
+  exists, the launcher checks all 20 corpus and question files against the SHA-256 values in the committed manifest
+  (`eval/decisions/datasets/beam-10m-9b20961.json`) and refuses on a missing or changed file. Once the VM is ready
+  and before setup, the VM runner (`ubi-runner.sh run --push`) copies only those files to `~/custody/datasets`,
+  outside the checkout and readable only by the VM user. Setup's fetch hashes each file again against the manifest
+  and refuses on a mismatch. The loaders read from there, and the remote command deletes `~/custody/datasets`
+  when the cell ends, before the VM disk is destroyed. The opening order is unchanged: structure check, then corpus
+  ingest, then questions.
+- **Fault 2: Q1 sealed cells ran without custody on the VM.** A Q1 cell's payload never carried `sealed`. So the VM
+  created no custody root and set no `GBRAIN_EVALS_CUSTODY_LOG`, and the cell's `--out` sat inside the VM's checkout.
+  `q1/cell.ts` refuses a sealed-split cell on either count, so all 144 units would stop before their first
+  question. The fix: a sealed cell's payload is sealed. The metering proxy's ledger stays in `~/custody/<lease>`.
+  The cell writes under `~/custody/out/<cell>/<lease>`, outside the checkout, and the access log is
+  `access-log.jsonl` in that directory, so it comes back with the rows. Rows, checkpoints and store snapshots are
+  pulled only into the launch's state directory. A sealed launch now refuses a state directory inside the
+  repository. The launcher's default (`eval/reports/scoreboard/<campaign>/state`) is inside the checkout, so the
+  custodian passes `--state <custody root>/q1-scoreboard-sealed/state`. A resume from a snapshot stages the
+  snapshot in that state directory and pushes it to `~/custody/restore`, which is also deleted at teardown. Before
+  this fix, a resume staged the snapshot in the checkout.
+- **Doctor.** `doctor --for sealed --campaign <sealed> --state <dir>` adds three error checks that run before any
+  lease:
+  - `s1-corpus` fails when no BEAM-10M files would be pushed, when `GBRAIN_EVALS_BEAM10M_SOURCE` is unset or inside
+    the repository, when any file's SHA-256 differs from the committed manifest, or when a stand-in manifest is set
+    (`GBRAIN_EVALS_BEAM10M_MANIFEST` is for dry runs only).
+  - `sealed-payload` fails when any sealed cell would launch without a VM custody root and the access log.
+  - `sealed-out` fails when a sealed cell would write inside the VM's checkout, or when `--state` is inside the
+    repository.
+- **Dry runs.** One cell per benchmark ran on a VM from a scratch copy of this tree, through the sealed path:
+  sealed payload, VM custody root and access log, output under `~/custody/out`, and rows pulled into a state
+  directory outside the checkout. API spend was $0.96 across seven leases, with a few minutes of VM time per VM.
+  - **S1** used a synthetic stand-in in BEAM-10M's layout (invented text, never BEAM-10M bytes), named by a stand-in
+    manifest. It ran S1's own `c0` command and setup unchanged. The launcher pushed 21 files; setup verified 20 of
+    them against the stand-in manifest; `q1/cell.ts` passed its custody gate and logged each opening. gbrain
+    ingested one conversation and was snapshotted under `~/custody/out`, and all five arms answered and were judged
+    ($0.39).
+  - **BEAM-1M (`1m-16`), LoCoMo (`conv-44`) and BEAM-100K (`100k-1`)** ran dev copies of their gbrain-defaults
+    sealed cells, with the first 4 sessions ingested on the BEAM sets and one question each. Every arm finished
+    complete ($0.25, $0.12 and $0.21).
+  - The first launch of those three stopped at its cell schema check because the dev copies had wrong arm ids. That
+    error was in the scratch definitions, not in the tree.
+  Every VM was destroyed.
+- **Freeze.** The sealed campaign is re-frozen at hash `eefd1799842105260104532b78283f9d9b5379ddfae6d44bb8f75317bc56424c`, replacing `a7328eed`, under which
+  nothing was counted. The 144 launch units and $6,469.26 in leases are unchanged, so nothing is re-priced; the cap
+  stays $7,200. The custodian initializes a fresh state directory at this freeze, outside the checkout. The launch
+  code is shared, so this tree hashes the public v3 campaigns to `9ce35e3e` and `54c6c44f`. Their launch hashes,
+  `1d119581` and `ca729154`, recompute at their launch tree `0518e2fd`, and they render from that tree, as v2
+  renders from `4bccbd5a`.
+- **Lease settlement (corrects A16).** Three launch attempts at `a7328eed`, the A16 launch and two relaunches, opened
+  62 leases in all. Every lease closed at $0 in the runner because no cell made an API call. The VM time, $2.50 in
+  total, is in the custodian's ledger. The custodian's manual stop check counts $2.50 spent plus $6,469.26 in leases
+  against the $7,200 cap.
+
 ## Changelog
+
+### 2026-10-11: amendment A17
+
+Two sealed launch-path faults are fixed: BEAM-10M is now pushed from the custodian's host and checked against the
+manifest on both ends, and a Q1 sealed cell runs with a VM custody root and access log, writes outside the checkout
+and is pulled only into a state directory outside the repository. Doctor gains the `s1-corpus`, `sealed-payload` and
+`sealed-out` checks. Sealed hash `eefd1799` replaces `a7328eed`; leases are unchanged. A16's lease settlement is
+corrected: 62 leases over three attempts, $0 API spend, $2.50 of VM time in the custodian's ledger.
 
 ### 2026-10-11: amendment A16
 

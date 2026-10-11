@@ -65,6 +65,8 @@ import { execFileSync } from 'node:child_process';
 import { BudgetRun, initLedger, ledgerStatus } from './budget-ledger.ts';
 import { DEFAULT_MAX_OUTPUT_TOKENS, DEFAULT_ROUTE_CAPS, type ProviderLimits, type ProviderName } from './metering-proxy.ts';
 import { refuse, ScoreboardError } from './q1/scoreboard-errors.ts';
+import { BEAM10M_MANIFEST } from './memory-qa/beam10m-corpus.ts';
+import { insideRepository } from './sealed-confirmation-lib.ts';
 
 const REPO_ROOT = resolve(import.meta.dir, '../..');
 export const REPO_RUNNER = join(REPO_ROOT, 'scripts/ubicloud/ubi-runner.sh');
@@ -319,9 +321,10 @@ export interface RemotePayload {
   route_caps?: { caps: Record<string, number>; slots: Record<string, string>; defaultClass: string };
   admission?: Partial<Record<ProviderName, ProviderLimits>>;
   /**
-   * An open-source shootout sealed cell (not Q1, whose sealed cells run from the custodian's host): the proxy's ledger
-   * and usage log live in the VM's custody root, ~/custody/<lease id>, passed to the command as SHOOTOUT_CUSTODY, so
-   * only the lease summary and what the command writes to SHOOTOUT_OUT leave the VM.
+   * A sealed cell: the proxy's ledger and usage log live in the VM's custody root, ~/custody/<lease id>, passed to the
+   * command as SHOOTOUT_CUSTODY, so only the lease summary and what the command writes to SHOOTOUT_OUT leave the VM. A
+   * Q1 sealed cell (A17) also writes its output under ~/custody/out (outside the checkout), carries the custody access
+   * log in GBRAIN_EVALS_CUSTODY_LOG, and only the custodian's host pulls it back.
    */
   sealed?: boolean;
 }
@@ -330,6 +333,7 @@ export interface RemotePayload {
 export interface LaunchContext { lease: LeaseState; cell: CellSpec; vm: string | null; remoteOut: string; resultsDir: string; timeoutMs: number | null; pullEveryMs: number | null; runner: string }
 export type Runner = (argv: string[], ctx: LaunchContext) => Promise<number | null>;
 
+const expandHome = (p: string) => p.startsWith('~/') ? join(homedir(), p.slice(2)) : p;
 const sha256File = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
 const usd = (n: number) => `$${n.toFixed(2)}`;
 
@@ -339,6 +343,38 @@ export function ownerTag(raw: string | undefined): string | null {
   if (!t) return null;
   if (!/^[a-z]/.test(t)) t = `u${t}`;
   return t.slice(0, 12);
+}
+
+export interface CustodyPush { source: string; list: string[]; env: string[] }
+
+/**
+ * A17: the custodian's BEAM-10M files for a sealed S1 cell, checked against the manifest on this host before any VM
+ * exists. GBRAIN_EVALS_BEAM10M_SOURCE names the verified dataset root (outside the checkout); ubi-runner pushes the
+ * listed files to ~/custody/datasets after the VM is ready and before setup, where setup's fetch checks every SHA-256
+ * again and refuses on a mismatch, and the remote command wipes them at teardown.
+ */
+export function beam10mCustodyPush(env: Record<string, string | undefined> = process.env, campaign = '<campaign>'): CustodyPush {
+  const source = env.GBRAIN_EVALS_BEAM10M_SOURCE;
+  const fix = { next: 'tell_user_to_run' as const, argv: ['bun', 'run', 'eval:scoreboard', 'doctor', '--for', 'sealed', '--campaign', campaign], user_message: 'on the custodian host, export GBRAIN_EVALS_BEAM10M_SOURCE=<the verified BEAM-10M dataset root, outside the checkout>' };
+  if (!source) throw refuse({ code: 'CUSTODY_REQUIRED', message: 'a sealed BEAM-10M cell needs the custodian\'s files and GBRAIN_EVALS_BEAM10M_SOURCE is not set', why: 'BEAM-10M is never downloaded on a VM; the custodian host pushes its verified copy', fix });
+  if (insideRepository(source)) throw refuse({ code: 'CUSTODY_REQUIRED', message: `GBRAIN_EVALS_BEAM10M_SOURCE ${source} is inside the repository`, why: 'sealed files never live where Git could pick them up', fix });
+  const manifest = env.GBRAIN_EVALS_BEAM10M_MANIFEST ?? join(REPO_ROOT, BEAM10M_MANIFEST);
+  const m = JSON.parse(readFileSync(manifest, 'utf8')) as { status: string; conversations: Array<{ chat_path: string; chat_sha256: string | null; questions_path: string; questions_sha256: string | null }> };
+  if (m.status !== 'filled') throw refuse({ code: 'CUSTODY_REQUIRED', message: 'the BEAM-10M manifest has no hashes', why: 'only pinned bytes are pushed', fix });
+  const list: string[] = [];
+  for (const x of m.conversations) for (const [path, want] of [[x.chat_path, x.chat_sha256], [x.questions_path, x.questions_sha256]] as const) {
+    const abs = join(source, path);
+    if (!existsSync(abs) || sha256File(abs) !== want) throw refuse({ code: 'CUSTODY_REQUIRED', message: `${path} under GBRAIN_EVALS_BEAM10M_SOURCE is ${existsSync(abs) ? 'not the pinned bytes' : 'missing'}`, why: 'the push refuses before any VM exists when a file does not match the manifest', fix });
+    list.push(path);
+  }
+  const extra: string[] = [];
+  if (env.GBRAIN_EVALS_BEAM10M_MANIFEST) {
+    const rel = relative(resolve(source), resolve(manifest));
+    if (rel.startsWith('..')) throw refuse({ code: 'USAGE', message: 'a stand-in BEAM-10M manifest must sit inside GBRAIN_EVALS_BEAM10M_SOURCE', why: 'it travels with the files it describes', fix });
+    list.push(rel);
+    extra.push(`GBRAIN_EVALS_BEAM10M_MANIFEST=~/custody/datasets/${rel}`);
+  }
+  return { source: resolve(source), list, env: ['GBRAIN_EVALS_BEAM10M_ROOT=~/custody/datasets', ...extra] };
 }
 
 export class Campaign {
@@ -468,6 +504,15 @@ export class Campaign {
 
   resultsDir(l: LeaseState) { return join(this.stateDir, 'results', l.cell, l.lease_id); }
   remoteOut(l: LeaseState) { return `eval/reports/shootout/${l.cell}/${l.lease_id}`; }
+  /** Q1 sealed cells (A17) keep their output in the VM's custody root, outside the checkout. */
+  sealedQ1(cellId: string) { return this.q1 && !!this.cell(cellId).sealed; }
+  /** The cell's output on the VM, relative to the VM user's home: what ubi-runner and reattach pull. */
+  remotePath(l: LeaseState) { return this.sealedQ1(l.cell) ? `custody/out/${l.cell}/${l.lease_id}` : `work/${basename(REPO_ROOT)}/${this.remoteOut(l)}`; }
+
+  /** A17: what a sealed S1 cell's launch pushes to the VM before setup (null for every other cell). */
+  custodyPush(cellId: string, env: Record<string, string | undefined> = process.env): CustodyPush | null {
+    return this.sealedQ1(cellId) && this.cell(cellId).benchmark === 'beam-10m' ? beam10mCustodyPush(env, this.manifestPath) : null;
+  }
 
   /** Q1: the VM name, in ubi-runner's ownership format so `list --mine` and teardown find it. */
   vmName(l: LeaseState, env: Record<string, string | undefined> = process.env): string {
@@ -484,7 +529,7 @@ export class Campaign {
     const base: RemotePayload = { lease_id: l.lease_id, lease_usd: l.usd, max_output_tokens: l.max_output_tokens, command: c.command, out: this.remoteOut(l) };
     if (c.timeout_hours !== undefined) base.timeout_hours = c.timeout_hours;
     if (!this.q1) return c.sealed ? { ...base, sealed: true } : base;
-    return { ...base, cell: c.id, campaign_sha256: this.sha, row_pull_every: this.manifest.row_pull_every ?? ROW_PULL_EVERY,
+    return { ...base, ...(c.sealed ? { sealed: true, out: `~/${this.remotePath(l)}` } : {}), cell: c.id, campaign_sha256: this.sha, row_pull_every: this.manifest.row_pull_every ?? ROW_PULL_EVERY,
       ...(c.snapshot_command ? { snapshot_command: c.snapshot_command } : {}), ...(restore ? { restore } : {}),
       route_caps: { caps: { ...DEFAULT_ROUTE_CAPS, ...(this.manifest.output_caps ?? {}) }, slots: { ...DEFAULT_ROUTE_CLASSES, ...(this.manifest.route_classes ?? {}) }, defaultClass: 'extraction' },
       ...(this.manifest.provider_limits ? { admission: this.admissionShare(c) } : {}) };
@@ -507,10 +552,18 @@ export class Campaign {
   }
 
   /** The ubi-runner invocation for a lease: provision, sync, set up, run the cell remotely, pull its output, destroy. */
-  launchArgv(l: LeaseState, opts: { vm?: string | null; restore?: RemotePayload['restore'] } = {}): string[] {
+  launchArgv(l: LeaseState, opts: { vm?: string | null; restore?: RemotePayload['restore']; restoreFrom?: string } = {}): string[] {
     const c = this.cell(l.cell);
-    const remoteOut = this.remoteOut(l);
     const payload = Buffer.from(JSON.stringify(this.payload(l, opts.restore))).toString('base64');
+    const push = this.custodyPush(l.cell);
+    let pushArgs: string[] = [];
+    if (push) {
+      mkdirSync(join(this.stateDir, 'setup'), { recursive: true });
+      const listFile = join(this.stateDir, 'setup', `${l.cell}.push`);
+      writeFileSync(listFile, push.list.join('\n') + '\n');
+      pushArgs = ['--push', `${push.source}:custody/datasets:${listFile}`, ...push.env.flatMap(e => ['--env', e])];
+    }
+    if (opts.restore?.dir === '~/custody/restore' && opts.restoreFrom) pushArgs.push('--push', `${opts.restoreFrom}:custody/restore`);
     let setup = c.setup ? (existsSync(resolve(REPO_ROOT, c.setup)) ? resolve(REPO_ROOT, c.setup) : resolve(c.setup)) : null;
     if (c.setup_command) {
       mkdirSync(join(this.stateDir, 'setup'), { recursive: true });
@@ -518,8 +571,8 @@ export class Campaign {
       writeFileSync(setup, `set -euo pipefail\n${c.setup_command}\n`);
     }
     return ['bash', resolveRunner(), 'run', '-s', c.vm?.size ?? 'standard-8', '-l', c.vm?.location ?? 'eu-central-h1', ...(c.vm?.storage_gib ? ['-S', String(c.vm.storage_gib)] : []),
-      ...(opts.vm ? ['-n', opts.vm] : []), ...(setup ? ['--setup', setup] : []), ...(c.pass ?? []).flatMap(p => ['--pass', p]),
-      '--pull', `work/${basename(REPO_ROOT)}/${remoteOut}:${dirname(this.resultsDir(l))}`,
+      ...(opts.vm ? ['-n', opts.vm] : []), ...(setup ? ['--setup', setup] : []), ...(c.pass ?? []).flatMap(p => ['--pass', p]), ...pushArgs,
+      '--pull', `${this.remotePath(l)}:${dirname(this.resultsDir(l))}`,
       '--', `bun eval/runner/shootout-cell.ts remote --cell-b64 ${payload}`];
   }
 
@@ -533,7 +586,7 @@ export class Campaign {
    * Launch a reserved lease. The launch is recorded before the VM starts, so a
    * crash at any point leaves a launched lease that is never launched again.
    */
-  async launch(cellId: string, runner: Runner, opts: { restore?: RemotePayload['restore']; local?: { port: number } } = {}): Promise<LeaseState> {
+  async launch(cellId: string, runner: Runner, opts: { restore?: RemotePayload['restore']; restoreFrom?: string; local?: { port: number } } = {}): Promise<LeaseState> {
     this.verifyFrozen('launch');
     const l = this.leases().find(x => x.cell === cellId && x.status === 'reserved');
     if (!l) {
@@ -541,11 +594,14 @@ export class Campaign {
       throw new Error(used ? `lease ${used.lease_id} was already launched; a lease is used once (settle or abandon it, then reserve again)` : `cell ${cellId} has no reserved lease; run reserve first`);
     }
     const c = this.cell(cellId);
+    if (this.sealedQ1(cellId) && insideRepository(this.stateDir)) throw refuse({ code: 'SEALED_CELL_LOCAL', message: `cell ${cellId} is sealed and --state ${this.stateDir} is inside the repository`,
+      why: 'a sealed cell\'s rows, checkpoints and snapshots are pulled into the state directory, which must be a custody directory outside the checkout (A17)',
+      fix: { next: 'tell_user_to_run', argv: ['bun', 'run', 'eval:scoreboard', 'doctor', '--for', 'sealed', '--campaign', this.manifestPath, '--state', '<custody dir outside the repository>/state'], user_message: 'relaunch with --state under the custody root, outside the checkout' } });
     const vm = this.q1 && !opts.local ? this.vmName(l) : null;
-    const argv = opts.local ? this.localArgv(l, opts.local.port, opts.restore) : this.launchArgv(l, { vm, restore: opts.restore });
+    const argv = opts.local ? this.localArgv(l, opts.local.port, opts.restore) : this.launchArgv(l, { vm, restore: opts.restore, restoreFrom: opts.restoreFrom });
     mkdirSync(this.resultsDir(l), { recursive: true });
     this.append({ event: 'launched', lease_id: l.lease_id, at: new Date().toISOString(), argv, ...(this.q1 ? { vm, restore: opts.restore?.realization_id ?? null } : {}) });
-    const ctx: LaunchContext = { lease: l, cell: c, vm, remoteOut: this.remoteOut(l), resultsDir: this.resultsDir(l), runner: argv[1],
+    const ctx: LaunchContext = { lease: l, cell: c, vm, remoteOut: this.remotePath(l), resultsDir: this.resultsDir(l), runner: argv[1],
       timeoutMs: c.timeout_hours ? c.timeout_hours * 3_600_000 : null, pullEveryMs: this.q1 ? (this.manifest.pull_interval_minutes ?? 10) * 60_000 : null };
     const code = await runner(argv, ctx);
     this.append({ event: 'finished', lease_id: l.lease_id, at: new Date().toISOString(), exit_code: code });
@@ -595,15 +651,16 @@ export class Campaign {
     let staged: string | null = null;
     if (realized && c.restore_command) {
       const from = this.lease(realized.lease_id);
-      staged = join(REPO_ROOT, '.scoreboard-restore', `${cellId}-${realized.realization_id}`);
+      const sealed = this.sealedQ1(cellId);
+      staged = join(sealed ? join(this.stateDir, 'restore') : join(REPO_ROOT, '.scoreboard-restore'), `${cellId}-${realized.realization_id}`);
       rmSync(staged, { recursive: true, force: true });
       mkdirSync(staged, { recursive: true });
       cpSync(join(this.resultsDir(from), 'realization'), join(staged, 'realization'), { recursive: true });
       if (existsSync(join(this.resultsDir(from), 'checkpoint'))) cpSync(join(this.resultsDir(from), 'checkpoint'), join(staged, 'checkpoint'), { recursive: true });
-      restore = { realization_id: realized.realization_id, dir: relative(REPO_ROOT, staged), restore_command: c.restore_command };
+      restore = { realization_id: realized.realization_id, dir: sealed && !opts.local ? '~/custody/restore' : relative(REPO_ROOT, staged), restore_command: c.restore_command };
     }
     const lease = this.reserve(cellId);
-    try { await this.launch(cellId, runner, { restore, local: opts.local }); }
+    try { await this.launch(cellId, runner, { restore, restoreFrom: staged ?? undefined, local: opts.local }); }
     finally { if (staged) rmSync(staged, { recursive: true, force: true }); }
     const mode = restore ? 'snapshot' : 'repeat';
     const note = restore ? `resumed from realization ${restore.realization_id}: the store snapshot and checkpointed rows were restored, so only missing questions ran`
@@ -767,7 +824,7 @@ async function takeSnapshot(payload: RemotePayload, out: string, env: Record<str
  * stacks as their dummy key (`${SHOOTOUT_CELL_TOKEN:-dummy}`), so nothing on the VM is trusted for being local.
  */
 export async function runRemote(payload: RemotePayload, opts: { port?: number; pollMs?: number; upstream?: Record<string, string>; custodyBase?: string } = {}): Promise<number> {
-  const out = resolve(payload.out);
+  const out = resolve(expandHome(payload.out));
   mkdirSync(out, { recursive: true });
   const custody = payload.sealed ? resolve(opts.custodyBase ?? join(homedir(), 'custody'), payload.lease_id) : null;
   const traces = custody ? join(custody, 'proxy') : out;
@@ -793,10 +850,11 @@ export async function runRemote(payload: RemotePayload, opts: { port?: number; p
     if (!up) throw new Error('the metering proxy did not start');
     const base = `http://127.0.0.1:${port}`;
     const env: Record<string, string | undefined> = { ...process.env, SHOOTOUT_OUT: out, SHOOTOUT_PROXY: base, SHOOTOUT_LEASE_ID: payload.lease_id, SHOOTOUT_PROXY_CONTROL_TOKEN: controlToken,
-      OPENAI_BASE_URL: `${base}/cell/openai/v1`, ANTHROPIC_BASE_URL: `${base}/cell/anthropic`, VOYAGE_BASE_URL: `${base}/cell/voyage/v1`, SHOOTOUT_CELL_TOKEN: cellToken, ...(custody ? { SHOOTOUT_CUSTODY: custody } : {}) };
+      OPENAI_BASE_URL: `${base}/cell/openai/v1`, ANTHROPIC_BASE_URL: `${base}/cell/anthropic`, VOYAGE_BASE_URL: `${base}/cell/voyage/v1`, SHOOTOUT_CELL_TOKEN: cellToken, ...(custody ? { SHOOTOUT_CUSTODY: custody } : {}),
+      ...(custody && payload.cell ? { GBRAIN_EVALS_CUSTODY_LOG: join(out, 'access-log.jsonl') } : {}) };
     for (const k of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'VOYAGE_API_KEY']) if (env[k]) env[k] = 'dummy-key-the-proxy-replaces';
     if (payload.restore) {
-      const dir = resolve(REPO_ROOT, payload.restore.dir);
+      const dir = resolve(REPO_ROOT, expandHome(payload.restore.dir));
       if (existsSync(join(dir, 'checkpoint'))) for (const e of readdirSync(join(dir, 'checkpoint')).sort()) if (e !== 'checkpoint.json') cpSync(join(dir, 'checkpoint', e), join(out, e), { recursive: true });
       env.SHOOTOUT_RESTORE_DIR = join(dir, 'realization', 'snapshot');
       env.SHOOTOUT_RESTORED_REALIZATION = payload.restore.realization_id;
@@ -835,6 +893,7 @@ export async function runRemote(payload: RemotePayload, opts: { port?: number; p
   } finally {
     proxy.kill('SIGTERM');
     await proxy.exited;
+    if (custody && payload.cell) for (const d of ['datasets', 'restore']) rmSync(join(dirname(custody), d), { recursive: true, force: true });
     const s = ledgerStatus({ ledgerPath: ledger, runId: payload.lease_id });
     writeFileSync(join(out, 'lease-summary.json'), JSON.stringify({ run_id: payload.lease_id, lease_usd: payload.lease_usd, committed_usd: s.run?.committed_usd ?? payload.lease_usd,
       requests: s.run ? BudgetRun.runRequests(ledger, payload.lease_id) : null, max_output_tokens: s.run ? BudgetRun.leaseMaxOutputTokens(ledger, payload.lease_id) ?? DEFAULT_MAX_OUTPUT_TOKENS : null, cell_exit_code: code,
@@ -862,7 +921,7 @@ export function ubiRunner(campaign?: Campaign): Runner {
         pulling = true;
         try {
           for (const part of ['checkpoint', 'realization']) {
-            const pull = Bun.spawn(['bash', ctx.runner, 'pull', ctx.vm!, `work/${basename(REPO_ROOT)}/${ctx.remoteOut}/${part}`, ctx.resultsDir], { stdout: 'ignore', stderr: 'ignore', env: process.env });
+            const pull = Bun.spawn(['bash', ctx.runner, 'pull', ctx.vm!, `${ctx.remoteOut}/${part}`, ctx.resultsDir], { stdout: 'ignore', stderr: 'ignore', env: process.env });
             await pull.exited;
           }
           campaign?.recordRealization(ctx.lease.lease_id);

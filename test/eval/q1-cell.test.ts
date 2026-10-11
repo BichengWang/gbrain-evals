@@ -761,7 +761,13 @@ describe('the generated cell manifest', () => {
     expect(units.every(u => u.lease_usd > 0 && u.command.includes('eval/runner/q1/cell.ts run --cell'))).toBe(true);
     expect(units.filter(u => u.sealed).every(u => ['beam-10m', 'beam-100k', 'beam-1m', 'locomo'].includes(u.benchmark))).toBe(true);
     for (const u of units) expect(u.pass).toEqual(u.system === 'gbrain-defaults' ? ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'VOYAGE_API_KEY'] : ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY']);
-    const argv = new Campaign(path, join(tmp, 'pass-state')).launchArgv({ lease_id: 'l', cell: units[0].id, attempt: 1, usd: units[0].lease_usd, entry_id: 'e', max_output_tokens: null, status: 'reserved' }, { vm: 'ubirun-test-1-abc' });
+    const probe = (u: typeof units[number]) => ({ lease_id: 'l', cell: u.id, attempt: 1, usd: u.lease_usd, entry_id: 'e', max_output_tokens: null, status: 'reserved' as const });
+    const launcher = new Campaign(path, join(tmp, 'pass-state'));
+    const prior = process.env.GBRAIN_EVALS_BEAM10M_SOURCE;
+    delete process.env.GBRAIN_EVALS_BEAM10M_SOURCE;
+    try { expect(() => launcher.launchArgv(probe(units[0]), { vm: 'ubirun-test-1-abc' })).toThrow(/GBRAIN_EVALS_BEAM10M_SOURCE is not set/); }
+    finally { if (prior !== undefined) process.env.GBRAIN_EVALS_BEAM10M_SOURCE = prior; }
+    const argv = launcher.launchArgv(probe(units.find(u => u.sealed && u.benchmark !== 'beam-10m')!), { vm: 'ubirun-test-1-abc' });
     expect(argv.join(' ')).toContain('--pass OPENAI_API_KEY --pass ANTHROPIC_API_KEY');
     const fd = Bun.spawnSync(['bun', 'eval/runner/scoreboard-cli.ts', 'plan', '--campaign', path, '--json'], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
     expect(fd.exitCode).toBe(0);

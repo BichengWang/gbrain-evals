@@ -18,11 +18,10 @@
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { decideError } from '../decisions/errors.ts';
 import { appendAccessLog } from '../sealed-confirmation-lib.ts';
-import { BEAM10M_MANIFEST, type Beam10mCorpus } from './beam10m-corpus.ts';
+import { beam10mManifestPath, beam10mRoot, type Beam10mCorpus } from './beam10m-corpus.ts';
 import type { MemoryQuestion } from './corpus.ts';
 
 const REPO_ROOT = resolve(import.meta.dir, '../../..');
@@ -43,8 +42,8 @@ export interface Beam10mQuestionStats { questions: number; by_ability: Record<st
 export function loadBeam10mQuestions(corpus: Beam10mCorpus, custody: { log: string; decisionId: string; purpose: string }, opts: { manifestPath?: string; root?: string } = {}): { questions: MemoryQuestion[]; stats: Beam10mQuestionStats } {
   if (!custody.log) throw decideError({ code: 'CUSTODY_MISSING', message: 'BEAM-10M questions need the custody access log', why: 'every opening of sealed questions is logged',
     fix: { next: 'ask_user', user_message: 'only the custodian loads BEAM-10M questions, with GBRAIN_EVALS_CUSTODY_LOG set' } });
-  const m = JSON.parse(readFileSync(opts.manifestPath ?? join(REPO_ROOT, BEAM10M_MANIFEST), 'utf8')) as QuestionsManifest;
-  const root = opts.root ?? process.env.GBRAIN_EVALS_DATASETS ?? join(homedir(), 'datasets', 'gbrain-evals');
+  const m = JSON.parse(readFileSync(opts.manifestPath ?? beam10mManifestPath(), 'utf8')) as QuestionsManifest;
+  const root = opts.root ?? beam10mRoot();
   const questions: MemoryQuestion[] = [];
   const stats: Beam10mQuestionStats = { questions: 0, by_ability: {}, ambiguous_gold: 0, unmapped_source_ids: 0 };
   for (const conv of corpus.conversations) {

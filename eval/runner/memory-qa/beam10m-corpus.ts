@@ -42,6 +42,11 @@ import type { Conversation, DatasetIdentity, Session } from './corpus.ts';
 const REPO_ROOT = resolve(import.meta.dir, '../../..');
 export const BEAM10M_MANIFEST = 'eval/decisions/datasets/beam-10m-9b20961.json';
 const datasetRoot = () => process.env.GBRAIN_EVALS_DATASETS ?? join(homedir(), 'datasets', 'gbrain-evals');
+const expandHome = (p: string | undefined) => !p ? undefined : p.startsWith('~/') ? join(homedir(), p.slice(2)) : p;
+/** Where BEAM-10M files are read: a sealed VM's custody root (GBRAIN_EVALS_BEAM10M_ROOT, filled by the launcher's custody push, A17), else this host's dataset root. */
+export const beam10mRoot = () => expandHome(process.env.GBRAIN_EVALS_BEAM10M_ROOT) ?? datasetRoot();
+/** The BEAM-10M manifest: the committed one, or GBRAIN_EVALS_BEAM10M_MANIFEST for a synthetic stand-in (dry runs only; doctor --for sealed refuses it). */
+export const beam10mManifestPath = () => expandHome(process.env.GBRAIN_EVALS_BEAM10M_MANIFEST) ?? join(REPO_ROOT, BEAM10M_MANIFEST);
 const sha256 = (data: string | Uint8Array) => createHash('sha256').update(data).digest('hex');
 
 /** The corpus side of the manifest: the only fields this module reads. */
@@ -52,7 +57,7 @@ export interface Beam10mCorpusManifest {
   conversations: Array<{ conversation: string; chat_path: string; chat_sha256: string | null }>;
 }
 
-export function beam10mCorpusManifest(path = join(REPO_ROOT, BEAM10M_MANIFEST)): Beam10mCorpusManifest {
+export function beam10mCorpusManifest(path = beam10mManifestPath()): Beam10mCorpusManifest {
   const m = JSON.parse(readFileSync(path, 'utf8')) as Beam10mCorpusManifest;
   return { revision: m.revision, license: m.license, status: m.status, conversations: m.conversations.map(c => ({ conversation: c.conversation, chat_path: c.chat_path, chat_sha256: c.chat_sha256 })) };
 }
@@ -218,9 +223,9 @@ function logAccess(log: string, entry: { action: 'open'; purpose: string; decisi
  * `log`, each opening is appended to the custody access log first.
  */
 export function loadBeam10mCorpus(opts: { only?: ReadonlySet<string>; manifestPath?: string; root?: string; log?: string; dates?: 'auto' | 'synthetic' } = {}): Beam10mCorpus {
-  const manifestPath = opts.manifestPath ?? join(REPO_ROOT, BEAM10M_MANIFEST);
+  const manifestPath = opts.manifestPath ?? beam10mManifestPath();
   const m = beam10mCorpusManifest(manifestPath);
-  const root = opts.root ?? datasetRoot();
+  const root = opts.root ?? beam10mRoot();
   const fill = ['bun', 'eval/runner/q1/beam10m-manifest.ts', 'fetch', '--write'];
   const conversations: Conversation[] = [];
   const sessionsOfMessage = new Map<string, Map<number, string[]>>();

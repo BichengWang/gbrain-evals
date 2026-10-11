@@ -47,7 +47,8 @@ import { BudgetRun, closeLedgers, ledgerPaths, priceRequest } from './budget-led
 import { AdmissionController, DEFAULT_ROUTE_CAPS, MeteringProxy, usageSplit } from './metering-proxy.ts';
 import { Campaign, DEFAULT_ROUTE_CLASSES, isQ1, loadCampaign, planWaves, resolveRunner, ownerTag, ubiRunner, vcpuOf, type LeaseState, type Runner } from './shootout-cell.ts';
 import { costSpeed, loadCell, renderCostSpeed, renderProgress } from './cost-speed.ts';
-import { exitCodeOf, refuse, renderMessage, ScoreboardError, type ScoreboardMessage } from './q1/scoreboard-errors.ts';
+import { exitCodeOf, refuse, renderMessage, ScoreboardError, type ScoreboardCode, type ScoreboardMessage } from './q1/scoreboard-errors.ts';
+import { insideRepository } from './sealed-confirmation-lib.ts';
 import { DATASET_ROOT, filesFor, sha256 } from './memory-qa/corpus.ts';
 import { answerId, type AnswerRecord, type JudgmentRecord } from './scoreboard.ts';
 import type { Outcome } from './memory-qa/outcomes.ts';
@@ -196,6 +197,7 @@ export async function doctor(a: Args, env: Record<string, string | undefined> = 
     const custodian = !!log && existsSync(log) && !onCapyMachine(env);
     add({ id: 'custody', ok: custodian, severity: 'error', detail: custodian ? `custody log ${log}` : 'this is not the custodian host (no GBRAIN_EVALS_CUSTODY_LOG, or a Capy machine)', code: 'CUSTODY_REQUIRED',
       fix: { next: 'tell_user_to_run', argv: [...FRONT, 'doctor', '--for', 'sealed'], user_message: 'sealed cells launch only from the custodian host, where the sealed data, rows and snapshots stay' } });
+    if (loaded && manifestPath && isQ1(loaded.manifest)) for (const c of sealedLaunchChecks(manifestPath, stateDir, many(a, '--cell'), env)) add(c);
   }
   // Datasets: the named cells' (every cell's without --cell), and a dev smoke's own conversations only, so preflight never
   // asks this host to download a sealed conversation it will not read.
@@ -232,6 +234,46 @@ export async function doctor(a: Args, env: Record<string, string | undefined> = 
     } else add({ id: 'ledger', ok: null, severity: 'warn', detail: `${stateDir} has no campaign yet (run initializes it)` });
   }
   return { ok: !checks.some(c => c.ok === false && c.severity === 'error'), for: forWhat, checks };
+}
+
+/**
+ * A17: what a sealed Q1 launch from this tree would do, checked before any lease. `s1-corpus`: a sealed BEAM-10M cell
+ * pushes the custodian's files (GBRAIN_EVALS_BEAM10M_SOURCE, outside the checkout, every SHA-256 matching the committed
+ * manifest). `sealed-payload`: the VM command gets a custody root and the custody access log. `sealed-out`: the cell
+ * writes outside the VM's checkout, and its rows come back only to a state directory outside this repository.
+ */
+export function sealedLaunchChecks(manifestPath: string, stateDir: string | undefined, named: string[], env: Record<string, string | undefined>): Check[] {
+  const probeDir = mkdtempSync(join(tmpdir(), 'q1-doctor-'));
+  const fix = (user_message: string) => ({ next: 'tell_user_to_run' as const, argv: [...FRONT, 'doctor', '--for', 'sealed', '--campaign', manifestPath, ...(stateDir ? ['--state', stateDir] : [])], user_message });
+  try {
+    const c = new Campaign(manifestPath, probeDir);
+    const sealed = c.manifest.cells.filter(x => x.sealed && (!named.length || named.includes(x.id)));
+    if (!sealed.length) return [];
+    const probe = (id: string): LeaseState => ({ lease_id: 'doctor-probe', cell: id, attempt: 1, usd: c.cell(id).lease_usd, entry_id: 'doctor-probe', max_output_tokens: null, status: 'reserved' });
+    const out: Check[] = [];
+    const s1 = sealed.filter(x => x.benchmark === 'beam-10m');
+    if (s1.length) {
+      let ok = false, detail: string, code: ScoreboardCode = 'CUSTODY_REQUIRED';
+      try {
+        const push = c.custodyPush(s1[0].id, env);
+        if (!push) detail = `this tree's launcher pushes no BEAM-10M files to a sealed S1 VM (${s1.length} cell(s)), so setup's fetch has nothing to verify`;
+        else if (env.GBRAIN_EVALS_BEAM10M_MANIFEST) detail = 'GBRAIN_EVALS_BEAM10M_MANIFEST names a stand-in manifest (dry runs only); a counted cell reads the committed one';
+        else { ok = true; detail = `${push.list.length} BEAM-10M file(s) under ${push.source} match the committed manifest; ${s1.length} S1 cell(s) push them to ~/custody/datasets before setup`; }
+      } catch (e) { if (!(e instanceof ScoreboardError)) throw e; detail = e.op.message; code = e.op.code; }
+      out.push({ id: 's1-corpus', ok, severity: 'error', detail, code, fix: fix('export GBRAIN_EVALS_BEAM10M_SOURCE=<the verified BEAM-10M dataset root outside the checkout> on the custodian host') });
+    }
+    const noCustody = sealed.filter(x => !c.payload(probe(x.id)).sealed);
+    out.push({ id: 'sealed-payload', ok: !noCustody.length, severity: 'error', code: 'SEALED_CELL_LOCAL',
+      detail: noCustody.length ? `${noCustody.length} of ${sealed.length} sealed cell(s) would launch without a custody root or GBRAIN_EVALS_CUSTODY_LOG on the VM (e.g. ${noCustody[0].id}), so cell.ts refuses before the first question` : `${sealed.length} sealed cell(s) carry a VM custody root and the custody access log`,
+      fix: fix('this tree cannot run sealed cells; use the freeze that carries A17') });
+    const inCheckout = sealed.filter(x => { const l = probe(x.id); const o = c.payload(l).out; return !o.startsWith('~/') || o.startsWith('~/work/') || c.remotePath(l).startsWith('work/'); });
+    const hostInRepo = !!stateDir && insideRepository(stateDir);
+    out.push({ id: 'sealed-out', ok: !inCheckout.length && !hostInRepo, severity: 'error', code: 'SEALED_CELL_LOCAL',
+      detail: inCheckout.length ? `${inCheckout.length} sealed cell(s) would write --out inside the VM's checkout (e.g. ${inCheckout[0].id} -> ${c.payload(probe(inCheckout[0].id)).out})`
+        : hostInRepo ? `--state ${stateDir} is inside the repository; sealed rows are pulled there` : `sealed cells write under ~/custody/out on the VM${stateDir ? ` and pull to ${resolve(stateDir)}` : ' (pass --state to check where rows land)'}`,
+      fix: fix('launch with --state under the custody root, outside the checkout') });
+    return out;
+  } finally { rmSync(probeDir, { recursive: true, force: true }); }
 }
 
 /** Throw the first failed error check as its operator message (exit 2/3), carrying every failed check in `state`. */

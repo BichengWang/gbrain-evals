@@ -363,6 +363,22 @@ cmd_unpack() {
   remote "$1" "mkdir -p $qdest && tar -xzf - -C $qdest"
 }
 
+# push NAME LOCAL_DIR REMOTE_DIR [LIST_FILE]: copy LOCAL_DIR (or only the relative paths LIST_FILE names) into
+# REMOTE_DIR on the VM, replacing it, readable only by the VM user. Used for custody files that never enter the
+# checkout tarball (A17: the custodian's BEAM-10M files, a sealed cell's restore snapshot).
+cmd_push() {
+  local name=$1 src=$2 dest=$3 list=${4:-} qdest
+  [ -d "$src" ] || die "push: $src is not a directory"
+  qdest=$(printf %q "$dest")
+  if [ -n "$list" ]; then
+    [ -f "$list" ] || die "push: list file $list not found"
+    tar -C "$src" -T "$list" -czf -
+  else
+    tar -C "$src" -czf - .
+  fi | remote "$name" "umask 077 && rm -rf $qdest && mkdir -p $qdest && tar -xzf - -C $qdest" || die "push to $dest failed"
+  log "pushed ${list:+$(grep -c . "$list") listed file(s) from }$src -> $name:$dest"
+}
+
 cmd_sync() {
   local name=$1 src=${2:-.} dest=${3:-}
   src=$(cd "$src" && pwd)
@@ -380,7 +396,7 @@ cmd_pull() {
 }
 
 cmd_run() {
-  local up_args=() src=. dest="" setup="" keep=0 pulls=() envs=()
+  local up_args=() src=. dest="" setup="" keep=0 pulls=() envs=() pushes=()
   while [ $# -gt 0 ]; do
     case $1 in
       -s|--size|-l|--location|-n|--name|-S|--storage|-b|--image) up_args+=("$1" "$2"); shift 2 ;;
@@ -390,6 +406,7 @@ cmd_run() {
       --env) envs+=("$2"); shift 2 ;;
       --pass) [ -n "${!2+x}" ] || die "--pass $2: not set locally"; envs+=("$2=${!2}"); shift 2 ;;
       --pull) pulls+=("$2"); shift 2 ;;
+      --push) pushes+=("$2"); shift 2 ;;
       --keep) keep=1; shift ;;
       --) shift; break ;;
       *) die "run: unknown option $1" ;;
@@ -421,8 +438,12 @@ cmd_run() {
     | remote "$name" 'umask 077 && cat > ~/.ubirun-env'
 
   cmd_sync "$name" "$src" "$dest"
-  local qdest
+  local qdest p rest
   qdest=$(printf %q "$dest")
+  for p in ${pushes[@]+"${pushes[@]}"}; do
+    rest=${p#*:}
+    if [ "$rest" = "${rest#*:}" ]; then cmd_push "$name" "${p%%:*}" "$rest"; else cmd_push "$name" "${p%%:*}" "${rest%%:*}" "${rest#*:}"; fi
+  done
   if [ -n "$setup" ]; then
     remote "$name" 'cat > ~/.ubirun-setup.sh' <"$setup"
     log "running setup $(basename "$setup")"
@@ -435,7 +456,6 @@ cmd_run() {
   remote "$name" "cd $qdest && . ~/.ubirun-env && bash -lc $(printf %q "$*")" || rc=$?
   log "command exited $rc after $(( $(date +%s) - start ))s"
 
-  local p
   for p in ${pulls[@]+"${pulls[@]}"}; do
     cmd_pull "$name" "${p%%:*}" "${p#*:}" || log "pull failed: $p"
   done
@@ -447,14 +467,17 @@ usage() {
 usage: ubi-runner.sh <command> [args]
 
   run [up opts] [--src DIR] [--dest PATH] [--setup FILE] [--env K=V]...
-      [--pass NAME]... [--pull REMOTE_GLOB:LOCAL_DIR]... [--keep] -- COMMAND
-                         up + sync + setup + command + pull + destroy; exits with COMMAND's status
+      [--pass NAME]... [--push LOCAL_DIR:REMOTE_DIR[:LIST_FILE]]...
+      [--pull REMOTE_GLOB:LOCAL_DIR]... [--keep] -- COMMAND
+                         up + sync + push + setup + command + pull + destroy; exits with COMMAND's status
   up [-s SIZE] [-l LOCATION] [-n NAME] [-S STORAGE_GIB] [-b IMAGE]
                          create a VM and wait for SSH; prints its name
   ssh NAME [COMMAND]     shell or login-shell command on the VM (user ubi, passwordless sudo)
   sync NAME [SRC] [DEST] stream a checkout (tracked + untracked-unignored + .git)
   pack [SRC]             write that checkout tarball to stdout
   unpack NAME DEST       extract a tarball from stdin into DEST on the VM
+  push NAME LOCAL_DIR REMOTE_DIR [LIST_FILE]
+                         replace REMOTE_DIR with LOCAL_DIR (or the listed relative paths), mode 0700
   pull NAME REMOTE_GLOB LOCAL_DIR
                          copy matching remote entries into LOCAL_DIR
   down NAME [-l LOC]     destroy the VM; returns once it is confirmed gone or never existed
@@ -489,6 +512,7 @@ case $cmd in
   sync) cmd_sync "$@" ;;
   pack) cmd_pack "$@" ;;
   unpack) cmd_unpack "$@" ;;
+  push) cmd_push "$@" ;;
   pull) cmd_pull "$@" ;;
   down) cmd_down "$@" ;;
   list) cmd_list "$@" ;;

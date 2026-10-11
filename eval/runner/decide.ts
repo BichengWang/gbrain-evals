@@ -117,7 +117,7 @@ async function cmdFetch(argv: string[]): Promise<string> {
   for (const b of benches) {
     const only = flag(argv, '--conversations');
     const r = await fetchDataset(b, { force: argv.includes('--force'), verifyOnly: argv.includes('--verify-only'), ...(only ? { only: new Set(only.split(',').filter(Boolean)) } : {}) });
-    out.push(`${b}: ${r.verified} file(s) verified${r.fetched ? `, ${r.fetched} downloaded` : ''} under ${DATASET_ROOT}`);
+    out.push(`${b}: ${r.verified} file(s) verified${r.fetched ? `, ${r.fetched} downloaded` : ''} under ${b === 'beam-10m' ? 'the custody root' : DATASET_ROOT}`);
   }
   return out.join('\n') || 'nothing to fetch';
 }

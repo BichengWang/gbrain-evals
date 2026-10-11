@@ -18,7 +18,7 @@ import { closeSync, existsSync, openSync, readFileSync, readSync } from 'node:fs
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { decideError } from '../decisions/errors.ts';
-import { loadBeam10mCorpus } from './beam10m-corpus.ts';
+import { beam10mManifestPath, beam10mRoot, loadBeam10mCorpus } from './beam10m-corpus.ts';
 import { loadBeam10mQuestions } from './beam10m-questions.ts';
 
 export interface Turn { speaker: string; content: string; message_ids?: number[] }
@@ -169,9 +169,36 @@ export function readDatasetFile(f: DatasetFile, benchmark: string): string {
   return bytes.toString('utf8');
 }
 
+/**
+ * BEAM-10M on a sealed VM (A17): nothing is downloaded. The launcher's custody push put the custodian's verified files
+ * under GBRAIN_EVALS_BEAM10M_ROOT, outside the checkout; this checks every corpus and question file against the
+ * manifest's SHA-256 (hashing bytes, parsing nothing) and refuses on a missing file or a mismatch. Without that root
+ * BEAM-10M stays custody-only, as before.
+ */
+export function verifyBeam10mCustody(log: (s: string) => void = s => process.stderr.write(s + '\n')): number {
+  if (!process.env.GBRAIN_EVALS_BEAM10M_ROOT) filesFor('beam-10m');
+  const root = beam10mRoot();
+  const m = JSON.parse(readFileSync(beam10mManifestPath(), 'utf8')) as { status: string; conversations: Array<{ conversation: string; chat_path: string; chat_sha256: string | null; questions_path: string; questions_sha256: string | null }> };
+  if (m.status !== 'filled') throw decideError({ code: 'CUSTODY_MISSING', message: 'beam-10m: the manifest has no hashes yet', why: 'only pinned bytes are accepted on a sealed VM',
+    fix: { next: 'tell_user_to_run', argv: ['bun', 'eval/runner/q1/beam10m-manifest.ts', 'fetch', '--write'], user_message: 'the custodian fills the BEAM-10M manifest on the custody host' } });
+  let n = 0;
+  for (const c of m.conversations) for (const [path, want] of [[c.chat_path, c.chat_sha256], [c.questions_path, c.questions_sha256]] as const) {
+    const abs = join(root, path);
+    if (!existsSync(abs)) throw decideError({ code: 'DATASET_MISSING', message: `beam-10m: ${path} did not arrive in the custody root`, why: 'the launcher pushes every BEAM-10M file from the custodian host before setup',
+      fix: { next: 'tell_user_to_run', argv: ['bun', 'run', 'eval:scoreboard', 'doctor', '--for', 'sealed'], user_message: 'set GBRAIN_EVALS_BEAM10M_SOURCE on the custodian host to the verified BEAM-10M files and relaunch' } });
+    const got = fileSha256(abs);
+    if (got !== want) throw decideError({ code: 'DATASET_HASH_MISMATCH', message: `beam-10m: ${path} arrived with SHA-256 ${got.slice(0, 12)}, expected ${String(want).slice(0, 12)}`, why: 'only the pinned bytes are scored',
+      fix: { next: 'tell_user_to_run', argv: ['bun', 'run', 'eval:scoreboard', 'doctor', '--for', 'sealed'], user_message: 're-verify the custodian\'s BEAM-10M files and relaunch' } });
+    n++;
+  }
+  log(`[custody] beam-10m: ${n} file(s) match their pinned sha256 under the custody root`);
+  return n;
+}
+
 export async function fetchDataset(benchmark: string, opts: { force?: boolean; verifyOnly?: boolean; log?: (s: string) => void; only?: ReadonlySet<string> } = {}): Promise<{ fetched: number; verified: number }> {
   const log = opts.log ?? ((s: string) => process.stderr.write(s + '\n'));
   let fetched = 0; let verified = 0;
+  if (benchmark === 'beam-10m') return { fetched: 0, verified: verifyBeam10mCustody(log) };
   const { mkdirSync, renameSync, rmSync, createWriteStream } = await import('node:fs');
   const { dirname } = await import('node:path');
   for (const f of filesFor(benchmark, opts.only)) {

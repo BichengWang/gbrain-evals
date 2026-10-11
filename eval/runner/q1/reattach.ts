@@ -43,7 +43,7 @@ const ubi = (...args: string[]) => {
 };
 
 const probe = (vm: string, out: string) => ubi('ssh', vm, [
-  `cd ${remoteRoot} 2>/dev/null || { echo nodir; exit 0; }`,
+  `[ -d ${remoteRoot} ] || { echo nodir; exit 0; }; cd ~`,
   `s=0; pgrep -f '[b]ootstrap.sh setup' >/dev/null && s=1`,
   `r=0; pgrep -f '[s]hootout-cell.ts remote' >/dev/null && r=1`,
   `l=0; [ -f ${out}/lease-summary.json ] && l=1`,
@@ -57,7 +57,7 @@ const misses = new Map<string, number>();
 const final = new Map<string, Phase>();
 
 function pullParts(c: Campaign, l: LeaseState, vm: string) {
-  for (const part of ['checkpoint', 'realization']) ubi('pull', vm, `${remoteRoot}/${c.remoteOut(l)}/${part}`, c.resultsDir(l));
+  for (const part of ['checkpoint', 'realization']) ubi('pull', vm, `${c.remotePath(l)}/${part}`, c.resultsDir(l));
   c.recordRealization(l.lease_id);
   lastPull.set(l.lease_id, Date.now());
 }
@@ -69,7 +69,7 @@ function step(c: Campaign, l: LeaseState): Phase {
   const vm = l.vm;
   if (!vm) return 'lost';
   if (launcherAlive(vm)) return 'running';
-  const out = c.remoteOut(l);
+  const out = c.remotePath(l);
   const p = probe(vm, out);
   const m = p.out.match(/state (\d) (\d) (\d) (\d) (\d)/);
   if (p.code !== 0 || !m) {
@@ -85,7 +85,7 @@ function step(c: Campaign, l: LeaseState): Phase {
     return 'running';
   }
   if (summary) {
-    ubi('pull', vm, `${remoteRoot}/${out}`, dirname(c.resultsDir(l)));
+    ubi('pull', vm, out, dirname(c.resultsDir(l)));
     c.recordRealization(l.lease_id);
     if (!existsSync(join(c.resultsDir(l), 'lease-summary.json'))) return 'waiting';
     c.settle(l.lease_id);
