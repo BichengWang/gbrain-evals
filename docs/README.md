@@ -1,7 +1,7 @@
 # Learn, evaluate, and extend gbrain
 
 This index lists every published report by the question it answers. It describes the repository as it stands:
-gbrain-evals v0.10.71, with gbrain master `8a3eedeac` (v0.60.126.0) as the product under test. Results measured at
+gbrain-evals v0.10.72, with gbrain master `8a3eedeac` (v0.60.126.0) as the product under test. Results measured at
 other gbrain commits name that commit in their report. Everything above [Changelog](#changelog) is current; the
 changelog at the bottom records how this index changed.
 
@@ -197,6 +197,12 @@ and [repository writing guide](../CLAUDE.md). The
 procedure with documented missing pieces; it is not the current refresh command.
 
 ## Changelog
+
+### 2026-10-11: Memory proof wave release
+
+gbrain-evals v0.10.72 (the opening names it; was v0.10.71). The memory proof wave rows now describe a shipped
+feature: gbrain #6066 merged as v0.60.164.0 with the query facts arm on, per-model supersession thresholds, and
+pinned questions opt-in.
 
 ### 2026-10-10: Budgeted delivery H1 results row
 
