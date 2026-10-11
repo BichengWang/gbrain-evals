@@ -2,6 +2,14 @@
 
 This records what each gbrain-evals release changed and what its measurements meant at the time. Versions follow `VERSION` and `package.json`. Historical scores keep their original dates; later corrections do not turn them into measurements of today's code.
 
+## [Unreleased]
+
+### Reject non-finite judge scores
+
+- The [shared criterion-score parser](eval/runner/judge.ts) rejects `Infinity`, `-Infinity` and `NaN` before clamping. An overflowing JSON number such as `1e309` no longer becomes a `5/5` score.
+- Invalid numeric scores follow the existing malformed-response policy: one corrective retry, then `judge_failed` for the shared judge or `JudgeFailure` for Cat 29's pairwise judge.
+- Finite out-of-range scores still clamp to `0–5`. Published scores and historical receipts are not regenerated.
+
 ## [0.10.71] - 2026-10-10
 
 ### Budgeted delivery H1 results: `depth_first` fails on held-out questions; `cap_only` stays the explicit-budget default

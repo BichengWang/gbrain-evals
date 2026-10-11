@@ -226,6 +226,21 @@ describe('scoreAnswer — retry + fallback', () => {
     expect(result.output_tokens).toBe(250);
   });
 
+  test('retries an overflowing JSON score instead of awarding full credit', async () => {
+    const overflow = JSON.parse('1e309') as number;
+    const client = makeStubClient([
+      scoreBlock(SAMPLE_RUBRIC.map(c => [c.id, overflow, '.']), 'pass', '.'),
+      scoreBlock(SAMPLE_RUBRIC.map(c => [c.id, 2, '.']), 'fail', '.'),
+    ]);
+    const result = await scoreAnswer(makeEvidence(), { client });
+    expect(result.verdict).toBe('fail');
+    expect(result.overall_score).toBe(2);
+    expect(result.attempts).toBe(2);
+    expect(result.fallback_used).toBe(false);
+    expect(result.input_tokens).toBe(3000);
+    expect(result.output_tokens).toBe(400);
+  });
+
   test('falls back to judge_failed when both attempts are malformed', async () => {
     const client = makeStubClient([malformedBlock(), malformedBlock()]);
     const result = await scoreAnswer(makeEvidence(), { client });
@@ -237,6 +252,19 @@ describe('scoreAnswer — retry + fallback', () => {
       expect(s.rationale).toContain('judge_failed');
     }
     expect(result.overall_score).toBe(0);
+  });
+
+  test('non-finite scores remain malformed after retry', async () => {
+    for (const score of [Infinity, -Infinity, NaN]) {
+      const malformed = scoreBlock(SAMPLE_RUBRIC.map(c => [c.id, score, '.']), 'pass', '.');
+      const client = makeStubClient([malformed, malformed]);
+      const result = await scoreAnswer(makeEvidence(), { client });
+      expect(result.verdict).toBe('judge_failed');
+      expect(result.overall_score).toBe(0);
+      expect(result.attempts).toBe(2);
+      expect(result.fallback_used).toBe(true);
+      expect(result.scores.map(s => s.score)).toEqual([0, 0, 0]);
+    }
   });
 
   test('retry carries corrective feedback naming the defect', async () => {
